@@ -2,6 +2,27 @@
 
 轻量的只读服务，每 500 ms 采样一次整体 CPU、统一内存和 GPU 状态，在局域网通过 HTTP 提供最新快照。不保存历史，不提供逐核或进程信息。默认监听 `0.0.0.0:9500`；接口没有鉴权，仅适用于可信网络。
 
+English summary: [see below](#english).
+
+## 快速开始
+
+在 GB10 上执行：
+
+```bash
+git clone https://github.com/KoSukeWork/dgx_status_monitor.git
+cd dgx_status_monitor
+sudo bash deploy/install.sh
+curl http://127.0.0.1:9500/healthz
+```
+
+返回 `{"status":"ok",...}` 就说明服务正常。用 `hostname -I` 查到 GB10 的局域网 IP，然后在局域网的其他机器上调用：
+
+```bash
+curl http://<GB10的IP>:9500/api/v1/snapshot
+```
+
+连不上时，在 GB10 上运行 `ss -ltn | grep 9500`，确认监听的是 `0.0.0.0:9500`。安装完成后，建议按[部署后验证](#gb10-部署后验证与排查)核对一次 `gpu_used_mib`。
+
 ## 安装与运行
 
 需要 Python 3.10 或以上，GB10 推荐使用 DGX OS / Ubuntu 24.04 自带的 Python 3.12 和已安装的 NVIDIA 驱动。运行时唯一的第三方依赖是 `nvidia-ml-py`。在项目目录下开发或手动运行：
@@ -25,7 +46,7 @@ python3 -m venv .venv
 
 ### 安装 systemd 服务
 
-在 GB10 上进入此项目的源代码目录，执行：
+在 GB10 上进入项目目录（`git clone` 下来的 `dgx_status_monitor`），执行：
 
 ```bash
 sudo bash deploy/install.sh
@@ -47,6 +68,16 @@ sudo journalctl -u dgx-status-monitor -f
 
 命令行参数优先于环境变量，环境变量优先于默认值。日志输出到 stderr，systemd 会将其收集到 journal。
 
+升级到新版本：
+
+```bash
+cd dgx_status_monitor
+git pull
+sudo bash deploy/install.sh
+```
+
+脚本会更新 `/opt/dgx-status-monitor` 中的程序并重启服务，`/etc/default/dgx-status-monitor` 里的配置会保留。
+
 卸载服务和程序：
 
 ```bash
@@ -59,11 +90,11 @@ sudo rm -rf /opt/dgx-status-monitor
 
 ## HTTP API
 
-获取最新快照：
+获取最新快照（GB10 的局域网 IP 可以在 GB10 上用 `hostname -I` 查看）：
 
 ```bash
-curl http://DGX地址:9500/api/v1/snapshot
-curl http://DGX地址:9500/healthz
+curl http://<GB10的IP>:9500/api/v1/snapshot
+curl http://<GB10的IP>:9500/healthz
 ```
 
 Python 示例（标准库）：
@@ -72,7 +103,7 @@ Python 示例（标准库）：
 import json
 from urllib.request import urlopen
 
-with urlopen("http://DGX地址:9500/api/v1/snapshot", timeout=5) as response:
+with urlopen("http://<GB10的IP>:9500/api/v1/snapshot", timeout=5) as response:
     snapshot = json.load(response)
 print(snapshot["cpu"]["percent"], snapshot["memory"]["gpu_used_mib"])
 ```
@@ -105,7 +136,18 @@ print(snapshot["cpu"]["percent"], snapshot["memory"]["gpu_used_mib"])
 
 MiB 为 1024² 字节。无法取得的字段为 `null`，所有键仍然存在。启动后首次采样前，快照接口返回 503 和 `{"error":"warming_up"}`。`/healthz` 对新鲜快照返回 200 和 `{"status":"ok","age_ms":123,"sample_duration_ms":1.8}`，快照过期或尚未生成时返回 503，状态为 `stale`。支持 GET、HEAD 和 OPTIONS；其他方法返回 405。响应包含 CORS 和禁止缓存的头。
 
-GB10 使用统一内存，`gpu_used_mib` 是 `memory.used_mib` 的**一部分**，不是额外的内存。它只统计驱动记在 GPU 进程名下的内存，主要是 CUDA 分配的内存；普通 `malloc` 申请后交给 GPU 使用的内存可能没有计入。如果计算或图形进程列表只有一类可读，值只包含可读的那一类；两类都不可读时为 `null`。列表中有进程但所有进程的显存值均不可用时返回 `null`；部分值不可用时返回有效值的总和，并在进入该状态时记录一次 WARNING，因为结果可能偏低。即使同一个 PID 在另一个列表中有值，缺失的记录也可能造成低估。两个列表都为空时返回 `0`。GPU 利用率是驱动在一个时间窗口内的平均值，不是瞬时值。
+GPU 利用率是驱动在一个时间窗口内的平均值，不是瞬时值。
+
+### 关于 `gpu_used_mib`
+
+- GB10 使用统一内存，`gpu_used_mib` 是 `memory.used_mib` 的**一部分**，不是额外的内存。
+- 它只统计驱动记在 GPU 进程名下的内存，主要是 CUDA 分配的内存；普通 `malloc` 申请后交给 GPU 使用的内存可能没有计入。
+- 取值规则：
+  - 没有 GPU 进程：`0`。
+  - 有 GPU 进程，但所有进程的显存值都读不到：`null`。
+  - 只有部分显存值读得到：返回读得到的部分之和，结果可能偏低；进入这种状态时日志记录一次 WARNING。
+  - 计算进程和图形进程两个列表都读取失败：`null`；只有一个列表读取成功时，只统计这一个列表。
+  - 同一个 PID 同时出现在两个列表里时只算一次，取较大的值。
 
 ## GB10 部署后验证与排查
 
@@ -121,6 +163,25 @@ GB10 使用统一内存，`gpu_used_mib` 是 `memory.used_mib` 的**一部分**�
    ```
 
    也可将 `User=root` 换成已有用户并增加 `Group=该用户的组`；确保该用户有访问 `/dev/nvidia*` 和所需进程信息的权限。指定用户是否能看到所有用户的 GPU 进程，仍需按第 2 步验证。
+
+## English
+
+A lightweight, read-only HTTP service for NVIDIA DGX GB10. It samples overall CPU, unified memory, and GPU usage every 500 ms and serves the latest snapshot as JSON.
+
+- **Why:** GB10 uses unified memory, so `nvidia-smi` and NVML report framebuffer memory as N/A. This service reports GPU memory (`memory.gpu_used_mib`) as the sum of per-process GPU memory from NVML (compute and graphics processes, deduplicated by PID). It is part of `memory.used_mib`, not additional memory.
+- **Endpoints:** `GET /api/v1/snapshot` returns the latest values; `GET /healthz` returns 200 when the last sample is at most 2 s old, otherwise 503. Default port 9500. There is no authentication, so use it only on trusted networks.
+- **Lightweight:** Python 3.10+. The only runtime dependency is `nvidia-ml-py`; HTTP uses the standard library. Requests read a cached snapshot and never trigger sampling.
+- **Install** (runs as a systemd service with `DynamicUser`):
+
+  ```bash
+  git clone https://github.com/KoSukeWork/dgx_status_monitor.git
+  cd dgx_status_monitor
+  sudo bash deploy/install.sh
+  curl http://127.0.0.1:9500/api/v1/snapshot
+  ```
+
+- **Upgrade:** `git pull && sudo bash deploy/install.sh` (your config in `/etc/default/dgx-status-monitor` is kept).
+- Unavailable fields are `null`; every key is always present. Configuration, the field reference, and troubleshooting are documented above in Chinese.
 
 ## 许可证
 
