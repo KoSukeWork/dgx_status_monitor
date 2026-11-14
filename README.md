@@ -121,3 +121,7 @@ GB10 使用统一内存，`gpu_used_mib` 是 `memory.used_mib` 的**一部分**�
    ```
 
    也可将 `User=root` 换成已有用户并增加 `Group=该用户的组`；确保该用户有访问 `/dev/nvidia*` 和所需进程信息的权限。指定用户是否能看到所有用户的 GPU 进程，仍需按第 2 步验证。
+
+## 许可证
+
+[MIT](LICENSE)

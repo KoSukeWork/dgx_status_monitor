@@ -7,6 +7,8 @@ name = "dgx-status-monitor"
 version = "0.1.0"
 description = "Current CPU, unified memory, and GPU status for NVIDIA DGX GB10"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["nvidia-ml-py>=12"]
 
 [project.scripts]
