@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dgx-status-monitor"
+version = "0.1.0"
+description = "Current CPU, unified memory, and GPU status for NVIDIA DGX GB10"
+requires-python = ">=3.10"
+dependencies = ["nvidia-ml-py>=12"]
+
+[project.scripts]
+dgx-status-monitor = "dgx_status_monitor.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dgx_status_monitor"]
